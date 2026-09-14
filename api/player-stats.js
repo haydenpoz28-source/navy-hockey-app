@@ -1,28 +1,53 @@
+// Same headless-browser approach as team-stats.js — see the comment there
+// for why this is necessary (Cloudflare's bot challenge blocks plain fetch).
+
+import chromium from '@sparticuz/chromium';
+import puppeteer from 'puppeteer-core';
+
+export const config = { maxDuration: 60 };
+
 const PLAYER_URL = 'https://gamesheetstats.com/seasons/15222/players/8292333?configuration=34&filter%5Bdivision%5D=81652&filter%5Bstatus%5D=completed';
 
-const BROWSER_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-  'Accept-Language': 'en-US,en;q=0.9',
-  'Referer': 'https://gamesheetstats.com/',
-  'Sec-Fetch-Mode': 'navigate',
-  'Sec-Fetch-Site': 'same-origin',
-  'Sec-Fetch-Dest': 'document',
-};
+const REAL_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
+
+async function launchBrowser() {
+  return puppeteer.launch({
+    args: [...chromium.args, '--disable-blink-features=AutomationControlled'],
+    defaultViewport: { width: 1280, height: 900 },
+    executablePath: await chromium.executablePath(),
+    headless: chromium.headless,
+  });
+}
+
+async function fetchRenderedHtml(page, url) {
+  await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
+  for (let i = 0; i < 6; i++) {
+    const title = await page.title();
+    if (!/just a moment/i.test(title)) break;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  return page.content();
+}
 
 export default async function handler(req, res) {
+  let browser;
   try {
     const cheerio = await import('cheerio');
 
-    const playerRes = await fetch(PLAYER_URL, { headers: BROWSER_HEADERS });
-    if (!playerRes.ok) {
-      const body = (await playerRes.text()).slice(0, 300);
-      throw new Error(`Upstream fetch failed: ${playerRes.status} | body: ${body}`);
-    }
+    browser = await launchBrowser();
+    const page = await browser.newPage();
+    await page.setUserAgent(REAL_USER_AGENT);
 
-    const html = await playerRes.text();
+    const html = await fetchRenderedHtml(page, PLAYER_URL);
+    await browser.close();
+    browser = null;
+
     const $ = cheerio.load(html);
     const text = $('body').text().replace(/\s+/g, ' ').trim();
+
+    if (/just a moment/i.test(text.slice(0, 200))) {
+      throw new Error('Still blocked by Cloudflare challenge after waiting — headless browser was detected as automation.');
+    }
 
     const gpMatch = text.match(/\bGP\s*(\d+)/i);
     const gMatch = text.match(/\bG\s*(\d+)\s*A\b/i);
@@ -56,6 +81,7 @@ export default async function handler(req, res) {
       _debugTextSample: text.slice(0, 500),
     });
   } catch (err) {
+    if (browser) { try { await browser.close(); } catch (_) {} }
     res.status(500).json({ ok: false, error: err.message });
   }
 }
