@@ -3,6 +3,7 @@
 
 import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
+import path from 'path';
 
 export const config = { maxDuration: 60 };
 
@@ -11,10 +12,13 @@ const PLAYER_URL = 'https://gamesheetstats.com/seasons/15222/players/8292333?con
 const REAL_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
 
 async function launchBrowser() {
+  const executablePath = await chromium.executablePath();
+  process.env.LD_LIBRARY_PATH = `${path.dirname(executablePath)}:${process.env.LD_LIBRARY_PATH || ''}`;
+
   return puppeteer.launch({
     args: [...chromium.args, '--disable-blink-features=AutomationControlled'],
     defaultViewport: { width: 1280, height: 900 },
-    executablePath: await chromium.executablePath(),
+    executablePath,
     headless: chromium.headless,
   });
 }
