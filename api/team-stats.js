@@ -1,31 +1,33 @@
-// Vercel serverless function — runs on the server, so it is NOT subject to
-// the browser's cross-origin (CORS) restrictions that block this fetch from
-// working inside client-side JS. This is the piece that makes live CBHL data
-// possible once this app is deployed as a real site (it can't work as a
-// static file alone, or inside a Claude.ai artifact sandbox).
-//
-// NOTE: this was written without being able to test a live fetch against
-// gamesheetstats.com (that domain isn't reachable from the environment this
-// was built in). The parsing logic is a best-effort based on the page
-// content observed manually. If GameSheet changes their markup, or if the
-// data is loaded client-side via a separate API call rather than rendered
-// into the initial HTML, this will need adjusting — check the console.error
-// output in Vercel's function logs for clues.
-
 const PREVIEW_URL = 'https://gamesheetstats.com/seasons/15222/teams/524988/preview?configuration=34&filter%5Bstatus%5D=completed&filter%5Bdivision%5D=81652';
 const STANDINGS_URL = 'https://gamesheetstats.com/seasons/15222/standings?configuration=34&filter%5Bdivision%5D=81652&filter%5Bstatus%5D=completed';
+
+const BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Referer': 'https://gamesheetstats.com/',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'same-origin',
+  'Sec-Fetch-Dest': 'document',
+};
 
 export default async function handler(req, res) {
   try {
     const cheerio = await import('cheerio');
 
     const [previewRes, standingsRes] = await Promise.all([
-      fetch(PREVIEW_URL, { headers: { 'User-Agent': 'Mozilla/5.0' } }),
-      fetch(STANDINGS_URL, { headers: { 'User-Agent': 'Mozilla/5.0' } }),
+      fetch(PREVIEW_URL, { headers: BROWSER_HEADERS }),
+      fetch(STANDINGS_URL, { headers: BROWSER_HEADERS }),
     ]);
 
     if (!previewRes.ok || !standingsRes.ok) {
-      throw new Error(`Upstream fetch failed: preview=${previewRes.status} standings=${standingsRes.status}`);
+      const previewBody = previewRes.ok ? '' : (await previewRes.text()).slice(0, 300);
+      const standingsBody = standingsRes.ok ? '' : (await standingsRes.text()).slice(0, 300);
+      throw new Error(
+        `Upstream fetch failed: preview=${previewRes.status} standings=${standingsRes.status}` +
+        (previewBody ? ` | previewBody: ${previewBody}` : '') +
+        (standingsBody ? ` | standingsBody: ${standingsBody}` : '')
+      );
     }
 
     const previewHtml = await previewRes.text();
@@ -34,7 +36,6 @@ export default async function handler(req, res) {
     const $preview = cheerio.load(previewHtml);
     const previewText = $preview('body').text().replace(/\s+/g, ' ').trim();
 
-    // ---- team-level record / PP / PK / GD / streak from the preview page ----
     const recordAllMatch = previewText.match(/\((\d+)-(\d+)-(\d+)(?:-(\d+))?\)/);
     const ppMatch = previewText.match(/PP%\s*([\d.]+%)/i);
     const pkMatch = previewText.match(/PK%\s*([\d.]+%)/i);
@@ -47,7 +48,6 @@ export default async function handler(req, res) {
       ? `${recordAllMatch[1]}-${recordAllMatch[2]}-${recordAllMatch[3]}`
       : null;
 
-    // ---- division standings table ----
     const $standings = cheerio.load(standingsHtml);
     const rows = [];
     $standings('table tr').each((i, el) => {
@@ -59,7 +59,6 @@ export default async function handler(req, res) {
       if (cells.length > 3) rows.push(cells);
     });
 
-    // first row is usually the header — try to detect it and drop it
     const header = rows[0] && /rk|team/i.test(rows[0].join(' ')) ? rows.shift() : null;
 
     res.status(200).json({
@@ -74,8 +73,6 @@ export default async function handler(req, res) {
       ppGoalsPerGame: ppGpgMatch ? ppGpgMatch[1] : null,
       standingsHeader: header,
       standingsRows: rows,
-      // raw text included for debugging in Vercel logs / manual inspection —
-      // safe to remove once this is confirmed working
       _debugPreviewTextSample: previewText.slice(0, 500),
     });
   } catch (err) {
