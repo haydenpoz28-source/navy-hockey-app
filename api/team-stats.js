@@ -1,40 +1,70 @@
+// Vercel serverless function — now using a real headless Chrome browser
+// (via puppeteer-core + @sparticuz/chromium, both free/open-source) instead
+// of a plain fetch(). This was necessary because gamesheetstats.com sits
+// behind Cloudflare's bot-verification challenge ("Just a moment..."), which
+// blocks plain HTTP requests outright — only a browser that can actually run
+// JavaScript can get past it. A real browser has meaningfully better odds
+// here, but Cloudflare can still detect automation, so this isn't a 100%
+// guarantee. If it still fails, the JSON error response will say so.
+//
+// This still could not be tested against the live site from the environment
+// this was built in (that domain isn't reachable there). Check the `error`
+// field in the JSON response, or Vercel's function logs, if it's not working.
+
+import chromium from '@sparticuz/chromium';
+import puppeteer from 'puppeteer-core';
+
+export const config = { maxDuration: 60 };
+
 const PREVIEW_URL = 'https://gamesheetstats.com/seasons/15222/teams/524988/preview?configuration=34&filter%5Bstatus%5D=completed&filter%5Bdivision%5D=81652';
 const STANDINGS_URL = 'https://gamesheetstats.com/seasons/15222/standings?configuration=34&filter%5Bdivision%5D=81652&filter%5Bstatus%5D=completed';
 
-const BROWSER_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-  'Accept-Language': 'en-US,en;q=0.9',
-  'Referer': 'https://gamesheetstats.com/',
-  'Sec-Fetch-Mode': 'navigate',
-  'Sec-Fetch-Site': 'same-origin',
-  'Sec-Fetch-Dest': 'document',
-};
+const REAL_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
+
+async function launchBrowser() {
+  return puppeteer.launch({
+    args: [...chromium.args, '--disable-blink-features=AutomationControlled'],
+    defaultViewport: { width: 1280, height: 900 },
+    executablePath: await chromium.executablePath(),
+    headless: chromium.headless,
+  });
+}
+
+// Navigates to a URL and waits out Cloudflare's interstitial if one appears,
+// then returns the fully-rendered HTML.
+async function fetchRenderedHtml(page, url) {
+  await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
+
+  for (let i = 0; i < 6; i++) {
+    const title = await page.title();
+    if (!/just a moment/i.test(title)) break;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+
+  return page.content();
+}
 
 export default async function handler(req, res) {
+  let browser;
   try {
     const cheerio = await import('cheerio');
 
-    const [previewRes, standingsRes] = await Promise.all([
-      fetch(PREVIEW_URL, { headers: BROWSER_HEADERS }),
-      fetch(STANDINGS_URL, { headers: BROWSER_HEADERS }),
-    ]);
+    browser = await launchBrowser();
+    const page = await browser.newPage();
+    await page.setUserAgent(REAL_USER_AGENT);
 
-    if (!previewRes.ok || !standingsRes.ok) {
-      const previewBody = previewRes.ok ? '' : (await previewRes.text()).slice(0, 300);
-      const standingsBody = standingsRes.ok ? '' : (await standingsRes.text()).slice(0, 300);
-      throw new Error(
-        `Upstream fetch failed: preview=${previewRes.status} standings=${standingsRes.status}` +
-        (previewBody ? ` | previewBody: ${previewBody}` : '') +
-        (standingsBody ? ` | standingsBody: ${standingsBody}` : '')
-      );
-    }
+    const previewHtml = await fetchRenderedHtml(page, PREVIEW_URL);
+    const standingsHtml = await fetchRenderedHtml(page, STANDINGS_URL);
 
-    const previewHtml = await previewRes.text();
-    const standingsHtml = await standingsRes.text();
+    await browser.close();
+    browser = null;
 
     const $preview = cheerio.load(previewHtml);
     const previewText = $preview('body').text().replace(/\s+/g, ' ').trim();
+
+    if (/just a moment/i.test(previewText.slice(0, 200))) {
+      throw new Error('Still blocked by Cloudflare challenge after waiting — headless browser was detected as automation.');
+    }
 
     const recordAllMatch = previewText.match(/\((\d+)-(\d+)-(\d+)(?:-(\d+))?\)/);
     const ppMatch = previewText.match(/PP%\s*([\d.]+%)/i);
@@ -76,6 +106,7 @@ export default async function handler(req, res) {
       _debugPreviewTextSample: previewText.slice(0, 500),
     });
   } catch (err) {
+    if (browser) { try { await browser.close(); } catch (_) {} }
     res.status(500).json({ ok: false, error: err.message });
   }
 }
