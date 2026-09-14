@@ -1,58 +1,53 @@
-# Navy Hockey Dashboard — Live Version
+# Navy Hockey Dashboard
 
-This is a real website (not just a chat file) that checks CBHL/GameSheet
-live every time you open it or hit Refresh — no coming back to chat needed
-for stats/standings to update.
+## What changed from the Claude.ai version
 
-## What's here
-- `public/index.html` — your dashboard (same one you've been using, now
-  wired to fetch live data)
-- `api/team.js` — scrapes team record, PP%, PK%, GD, streak
-- `api/standings.js` — scrapes the division standings table
-- `api/player-log.js` — scans your team's completed box scores for
-  Hayden Pozerski (#72) and pulls goals/assists/PIM per game
-- `api/games.js` — helper endpoint listing the team's games
+1. **Storage fix (this definitely works):** the old version used `window.storage`,
+   which only exists inside Claude.ai's chat interface. That's why the deployed
+   Vercel site had no saved stats or game log — every save/load silently failed.
+   It's now using standard browser `localStorage`, which works on any real site.
+   Your data is stored per-browser on the device you use it on.
 
-## Deploying (free, ~10 minutes, one time)
+2. **Live CBHL sync (best-effort, needs verification):** `/api/team-stats.js` and
+   `/api/player-stats.js` are Vercel serverless functions. They run on Vercel's
+   server, not in the browser, so they aren't blocked by the cross-origin (CORS)
+   restriction that stops the browser from talking to GameSheet directly. The
+   dashboard calls these on load and whenever you click **"Refresh from CBHL"**.
 
-1. **Install Node.js** if you don't have it: https://nodejs.org (LTS version)
-2. **Install the Vercel CLI**. Open Terminal (Mac) or Command Prompt (Windows)
-   and run:
-   ```
-   npm install -g vercel
-   ```
-3. **Unzip this folder** somewhere on your computer, then `cd` into it in
-   the terminal:
-   ```
-   cd path/to/navy-hockey-app
-   ```
-4. **Deploy**:
-   ```
-   vercel
-   ```
-   - First time, it'll ask you to log in (free account, email or GitHub).
-   - Accept the defaults for all setup questions.
-5. When it finishes, it gives you a URL like `https://navy-hockey-app.vercel.app`.
-   Open that on your iPad and add it to your Home Screen (Share → Add to
-   Home Screen) so it feels like an app icon.
-6. For future updates to the code (if we tweak the scraper), run
-   `vercel --prod` again from the same folder.
+## Deploying
 
-## Important: this WILL need a debugging pass
+1. Push this folder to a GitHub repo (or drag-and-drop deploy via the Vercel
+   dashboard).
+2. Import it into Vercel. No environment variables or config needed —
+   `package.json` declares the one dependency (`cheerio`), and Vercel
+   auto-detects the `/api` folder as serverless functions.
+3. Visit the deployed URL.
 
-I wrote the scraper based on the page content I could see, but I can't
-fully test it against the live site's exact HTML from where I'm building
-this. After you deploy, open the site and check:
+## If live CBHL data doesn't show up
 
-- Does the stat rail / team panel show real numbers, or blanks?
-- Does "Refresh" show "Synced with CBHL" or an error message?
+I built the scrapers by reading GameSheet's pages manually, but I could not
+test an actual server-side fetch against gamesheetstats.com from the
+environment I built this in (that domain wasn't reachable there). So treat
+this as a strong first attempt, not a guarantee. If the numbers don't
+populate:
 
-If anything looks off, come back to this chat, tell me what you're seeing
-(or paste what shows up if you visit `your-url.vercel.app/api/team`
-directly in a browser — it should show raw JSON), and I'll fix the
-parsing logic and give you an updated file to redeploy.
+1. Open your deployed site, open browser dev tools → Console tab, and look
+   for `team-stats API error` or `team-stats fetch failed` messages.
+2. Or visit `https://your-site.vercel.app/api/team-stats` directly in a
+   browser tab — it returns raw JSON, including a `_debugPreviewTextSample`
+   field showing the actual text GameSheet returned. That tells us immediately
+   whether the page is being fetched at all, and what its real structure looks
+   like, so the regex/selectors can be corrected.
+3. Same for `/api/player-stats`.
+4. Paste that JSON back to Claude and the parsing logic can be corrected to
+   match the real output — that's a quick fix once we can actually see what
+   the server gets back, which wasn't possible to check beforehand.
 
-## What still works the old way
-- Your profile photo, name, position, team logo — saved locally, editable anytime
-- Practice schedule via .ics import — unaffected by any of this
-- Manual "Add game" for anything not on CBHL (still there as a backup)
+## If it still can't get live data at all
+
+Some sites block server-to-server requests from generic HTTP clients (bot
+detection, Cloudflare, etc.), which a `User-Agent` header sometimes works
+around and sometimes doesn't. If that turns out to be the case here, the
+dashboard still works fine on manually-pushed data — just tell Claude "update
+my stats" with a link or box score after each game, the same workflow used
+before, and it'll edit `index.html` directly for you to redeploy.
