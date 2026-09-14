@@ -13,6 +13,7 @@
 
 import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
+import path from 'path';
 
 export const config = { maxDuration: 60 };
 
@@ -22,10 +23,16 @@ const STANDINGS_URL = 'https://gamesheetstats.com/seasons/15222/standings?config
 const REAL_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
 
 async function launchBrowser() {
+  const executablePath = await chromium.executablePath();
+  // Fix for "libnss3.so: cannot open shared object file" on Vercel — the
+  // bundled shared libs sit next to the extracted binary, but the dynamic
+  // linker won't look there unless told to explicitly.
+  process.env.LD_LIBRARY_PATH = `${path.dirname(executablePath)}:${process.env.LD_LIBRARY_PATH || ''}`;
+
   return puppeteer.launch({
     args: [...chromium.args, '--disable-blink-features=AutomationControlled'],
     defaultViewport: { width: 1280, height: 900 },
-    executablePath: await chromium.executablePath(),
+    executablePath,
     headless: chromium.headless,
   });
 }
