@@ -1,0 +1,6 @@
+{
+  "functions": {
+    "api/team-stats.js": { "maxDuration": 60, "memory": 1024 },
+    "api/player-stats.js": { "maxDuration": 60, "memory": 1024 }
+  }
+}
