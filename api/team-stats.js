@@ -15,14 +15,15 @@ import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
 import path from 'path';
 
-export const config = { maxDuration: 60 };
+export const config = { maxDuration: 120 };
 
 const PREVIEW_URL = 'https://gamesheetstats.com/seasons/15222/teams/524988/preview?configuration=34&filter%5Bstatus%5D=completed&filter%5Bdivision%5D=81652';
-const STANDINGS_URL = 'https://gamesheetstats.com/seasons/15222/standings?configuration=34&filter%5Bdivision%5D=81652&filter%5Bstatus%5D=completed';
+const STANDINGS_URL = 'https://gamesheetstats.com/seasons/15222/standings?configuration=34&filter%5Bdivision%5D=81652&filter%5Bstatus%5D=completed&filter%5Btype%5D=regular_season';
 
 const REAL_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
 
 async function launchBrowser() {
+  chromium.setGraphicsMode = false;
   const executablePath = await chromium.executablePath();
   // Fix for "libnss3.so: cannot open shared object file" on Vercel — the
   // bundled shared libs sit next to the extracted binary, but the dynamic
