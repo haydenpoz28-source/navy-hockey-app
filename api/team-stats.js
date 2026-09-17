@@ -57,11 +57,23 @@ export default async function handler(req, res) {
     const cheerio = await import('cheerio');
 
     browser = await launchBrowser();
-    const page = await browser.newPage();
-    await page.setUserAgent(REAL_USER_AGENT);
 
-    const previewHtml = await fetchRenderedHtml(page, PREVIEW_URL);
-    const standingsHtml = await fetchRenderedHtml(page, STANDINGS_URL);
+    // Run both page loads concurrently on separate tabs — sequential loads
+    // were pushing total time past the function's limit, since each page
+    // can spend several seconds waiting out Cloudflare's challenge.
+    const [previewPage, standingsPage] = await Promise.all([
+      browser.newPage(),
+      browser.newPage(),
+    ]);
+    await Promise.all([
+      previewPage.setUserAgent(REAL_USER_AGENT),
+      standingsPage.setUserAgent(REAL_USER_AGENT),
+    ]);
+
+    const [previewHtml, standingsHtml] = await Promise.all([
+      fetchRenderedHtml(previewPage, PREVIEW_URL),
+      fetchRenderedHtml(standingsPage, STANDINGS_URL),
+    ]);
 
     await browser.close();
     browser = null;
