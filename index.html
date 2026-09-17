@@ -470,7 +470,8 @@ function renderTeamPanel(){
       <thead><tr><th>#</th><th>Team</th><th>GP</th><th>W-L-T</th><th>PTS</th><th>GF</th><th>GA</th><th>Diff</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <div class="standings-note">Rank/table reflect the league's own standings page, which currently includes preseason exhibition results — as of ${teamInfo.asOf}</div>
+    <div class="standings-note">Regular-season standings (via CBHL's own filter) as of ${teamInfo.asOf}</div>
+    <div class="standings-note" style="margin-top:2px;">If this looks off, the site's filter behavior may differ from expected — flag it to double-check</div>
   `;
 }
 
@@ -1000,6 +1001,7 @@ async function refreshFromCBHL(){
         if(mine){
           teamInfo.rank = `${mine.rank}${ordinalSuffix(mine.rank)} of ${remapped.length}`;
           teamInfo.gf = mine.gf; teamInfo.ga = mine.ga; teamInfo.gp = mine.gp;
+          teamInfo.recordLeague = `${mine.w}-${mine.l}-${mine.t}`;
         }
       }
       await saveKey('teamInfo', teamInfo);
