@@ -5,13 +5,14 @@ import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
 import path from 'path';
 
-export const config = { maxDuration: 60 };
+export const config = { maxDuration: 120 };
 
 const PLAYER_URL = 'https://gamesheetstats.com/seasons/15222/players/8292333?configuration=34&filter%5Bdivision%5D=81652&filter%5Bstatus%5D=completed';
 
 const REAL_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
 
 async function launchBrowser() {
+  chromium.setGraphicsMode = false;
   const executablePath = await chromium.executablePath();
   process.env.LD_LIBRARY_PATH = `${path.dirname(executablePath)}:${process.env.LD_LIBRARY_PATH || ''}`;
 
